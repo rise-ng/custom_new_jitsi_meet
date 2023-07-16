@@ -9,11 +9,17 @@ import android.content.IntentFilter
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.view.*
 import android.view.WindowManager
+import android.view.KeyEvent
+import android.widget.TextView
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import org.jitsi.meet.sdk.BroadcastEvent
 import org.jitsi.meet.sdk.JitsiMeetActivity
 import org.jitsi.meet.sdk.JitsiMeetConferenceOptions
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Button
+import android.widget.FrameLayout
 
 /**
  * Activity extending JitsiMeetActivity in order to override the conference events
@@ -38,8 +44,26 @@ class JitsiMeetPluginActivity : JitsiMeetActivity() {
         }
     }
 
+    private var resultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data: Intent? = result.data
+            if (data?.getBooleanExtra(DrawerActivity.BACK_BUTTON_TAG, false) == true) {
+                finish()
+            }
+        }
+    }
+
+    var pointersButton: Button? = null
     var onStopCalled: Boolean = false;
     private val eventStreamHandler = JitsiMeetEventStreamHandler.instance
+    private val pointerEnabled: BroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val updateFlags = intent.getBooleanExtra(DrawerActivity.POINTER_ENABLE_VALUE, false)
+            if (!updateFlags) {
+                pointersButton?.visibility = View.GONE
+            }
+        }
+    }
     private val broadcastReceiver: BroadcastReceiver =
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -52,6 +76,17 @@ class JitsiMeetPluginActivity : JitsiMeetActivity() {
         registerForBroadcastMessages()
         eventStreamHandler.onOpened()
         turnScreenOnAndKeyguardOff();
+        pointersButton = Button(this)
+        pointersButton?.text = getString(R.string.pointers)
+        pointersButton?.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT)
+
+        pointersButton?.setOnClickListener {
+            sendBroadcast(Intent(DrawerActivity.POINTERS_CLICKED_TAG).putExtra(DrawerActivity.UPDATE_FLAGS, true))
+        }
+
+        val layout = window.decorView.findViewById<FrameLayout>(android.R.id.content)
+        //layout.addView(pointersButton!!)
+        resultLauncher.launch(Intent(this@JitsiMeetPluginActivity, DrawerActivity::class.java))
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration?) {
@@ -63,7 +98,6 @@ class JitsiMeetPluginActivity : JitsiMeetActivity() {
         else {
             JitsiMeetEventStreamHandler.instance.onPictureInPictureTerminated()
         }
-
     }
 
     private fun registerForBroadcastMessages() {
@@ -103,6 +137,18 @@ class JitsiMeetPluginActivity : JitsiMeetActivity() {
             .unregisterReceiver(this.broadcastReceiver)
         eventStreamHandler.onClosed()
         turnScreenOffAndKeyguardOn();
+    }
+
+    override fun onResume() {
+        super.onResume()
+        onStopCalled = false
+        registerReceiver(pointerEnabled, IntentFilter(DrawerActivity.POINTERS_BUTTON_FLAG))
+    }
+
+    override fun onStop() {
+        super.onStop()
+        onStopCalled = true;
+        unregisterReceiver(pointerEnabled)
     }
 
     private fun turnScreenOnAndKeyguardOff() {

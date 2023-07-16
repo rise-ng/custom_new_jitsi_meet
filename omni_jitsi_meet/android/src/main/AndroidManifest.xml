@@ -13,5 +13,9 @@
             android:exported="false"
             android:autoRemoveFromRecents="true">
         </activity>
+
+        <activity
+            android:name=".DrawerActivity"
+            android:theme="@style/Theme.Transparent" />
     </application>
 </manifest>

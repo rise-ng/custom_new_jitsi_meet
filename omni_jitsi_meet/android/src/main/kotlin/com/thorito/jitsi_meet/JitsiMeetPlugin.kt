@@ -16,7 +16,8 @@ import io.flutter.plugin.common.PluginRegistry.Registrar
 import org.jitsi.meet.sdk.*
 import java.net.URL
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
-
+import android.os.CountDownTimer
+import android.content.IntentFilter
 
 /** JitsiMeetPlugin
 example: https://github.com/jitsi/jitsi-meet-sdk-samples/blob/18c35f7625b38233579ff34f761f4c126ba7e03a/android/kotlin/JitsiSDKTest/app/src/main/kotlin/net/jitsi/sdktest/MainActivity.kt
@@ -24,10 +25,14 @@ example: https://github.com/jitsi/jitsi-meet-sdk-samples/blob/18c35f7625b3823357
 public class JitsiMeetPlugin() : FlutterPlugin, MethodCallHandler,
     ActivityAware {
     private lateinit var methodChannel: MethodChannel
+    private lateinit var pointersChannel: MethodChannel
     private lateinit var eventChannel: EventChannel
     private val eventStreamHandler = JitsiMeetEventStreamHandler.instance
     private var activity: Activity? = null
 
+    constructor(activity: Activity) : this() {
+        this.activity = activity
+    }
     /**
      * FlutterPlugin interface implementations
      */
@@ -35,17 +40,42 @@ public class JitsiMeetPlugin() : FlutterPlugin, MethodCallHandler,
         methodChannel =
             MethodChannel(flutterPluginBinding.binaryMessenger, "jitsi_meet")
         methodChannel.setMethodCallHandler(this)
-
+        pointersChannel = MethodChannel(flutterPluginBinding.binaryMessenger, POINTERS_CHANNEL)
+        pointersChannel.setMethodCallHandler(this)
         eventChannel = EventChannel(
             flutterPluginBinding.binaryMessenger,
             "jitsi_meet_events"
         )
         eventChannel.setStreamHandler(JitsiMeetEventStreamHandler.instance)
+        val timer = object: CountDownTimer(20000000, 2000) {
+            override fun onTick(millisUntilFinished: Long) {
+                if (update) {
+                    val userData = mapOf("x" to x, "y" to y, "width" to screenWidth, "height" to screenHeight)
+                    pointersChannel.invokeMethod("receiveUserPointer", userData, object: MethodChannel.Result{
+                        override fun success(result: Any?) {
+                            update = false
+                        }
+
+                        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                            update = false
+                        }
+
+                        override fun notImplemented() {
+                            update = false
+                        }
+                    })
+                }
+            }
+
+            override fun onFinish() {}
+        }
+        timer.start()
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        pointersChannel.setMethodCallHandler(null)
     }
 
     override fun onDetachedFromActivity() {
@@ -64,6 +94,27 @@ public class JitsiMeetPlugin() : FlutterPlugin, MethodCallHandler,
         onDetachedFromActivity()
     }
 
+    // This static function is optional and equivalent to onAttachedToEngine. It supports the old
+    // pre-Flutter-1.12 Android projects. You are encouraged to continue supporting
+    // plugin registration via this function while apps migrate to use the new Android APIs
+    // post-flutter-1.12 via https://flutter.dev/go/android-project-migration.
+    //
+    // It is encouraged to share logic between onAttachedToEngine and registerWith to keep
+    // them functionally equivalent. Only one of onAttachedToEngine or registerWith will be called
+    // depending on the user's project. onAttachedToEngine or registerWith must both be defined
+    // in the same class.
+    companion object {
+
+        var x = 0.0
+        var y = 0.0
+        var screenWidth = 0
+        var screenHeight = 0
+        var update = false
+
+        const val JITSI_MEETING_CLOSE = "JITSI_MEETING_CLOSE"
+        const val POINTERS_CHANNEL = "samples.flutter.dev/pointer"
+    }
+
     /**
      * MethodCallHandler interface implementations
      */
@@ -76,9 +127,29 @@ public class JitsiMeetPlugin() : FlutterPlugin, MethodCallHandler,
             "joinMeeting" -> joinMeeting(call, result)
             "setAudioMuted" -> setAudioMuted(call, result)
             "handUp" -> hangUp(call, result)
+            "sendUserPointer" -> {
+                sendPointer(call, result)
+            }
+            "enablePointerButton" -> {
+                enablePointerButton(call, result)
+            }
             "closeMeeting" -> closeMeeting(call, result)
             else -> result.notImplemented()
         }
+    }
+
+    private fun sendPointer(call: MethodCall, result: Result) {
+        val userInfo = arrayListOf(
+            call.argument<String>("name"),
+            call.argument<Double>("x").toString(),
+            call.argument<Double>("y").toString(),
+            call.argument<String>("id").toString()
+        )
+        activity?.sendBroadcast(Intent(DrawerActivity.POINTERS_CLICKED_TAG).putExtra(DrawerActivity.DRAW_POINTER, userInfo))
+    }
+
+    private fun enablePointerButton(call: MethodCall, result: Result) {
+        activity?.sendBroadcast(Intent(DrawerActivity.POINTERS_BUTTON_FLAG).putExtra(DrawerActivity.POINTER_ENABLE_VALUE, call.argument<Boolean>("enable")))
     }
 
     /**
